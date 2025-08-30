@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # Servicio de base de datos PostgreSQL para cliente-persona
+  cliente-persona-db:
+    image: postgres:13-alpine
+    container_name: postgres-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sofka-db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5000:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sofka-red
+
+  # Servicio de Zookeeper (requerido por Kafka)
+  zookeeper:
+    image: zookeeper
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    networks:
+      - sofka-red
+
+  # Servicio de Kafka
+  kafka:
+    image: wurstmeister/kafka
+    container_name: kafka-sofka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+    depends_on:
+      - zookeeper
+    networks:
+      - sofka-red
+
+  # Microservicio cliente-persona
+  cliente-persona:
+    build:
+      context: ./cliente-persona
+      dockerfile: Dockerfile
+    container_name: cliente-persona
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cliente-persona-db:5432/sofka-db
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: always
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - cliente-persona-db
+      - kafka
+    networks:
+      - sofka-red
+  #BASE DE DATOS DE cuenta-movimiento
+  cuenta-movimiento-db:
+    image: postgres:13-alpine
+    container_name: sofka-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sofka-db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5001:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sofka-red
+
+  # Microservicio cuenta-movimiento
+  cuenta-movimiento:
+    build:
+      context: ./cuenta-movimiento
+      dockerfile: Dockerfile
+    container_name: cuenta-movimiento
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cuenta-movimiento-db:5432/sofka-db
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: always
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - cuenta-movimiento-db
+      - kafka
+    networks:
+      - sofka-red
+
+volumes:
+  postgres_data: {}
+
+networks:
+  sofka-red:
+    driver: bridge
